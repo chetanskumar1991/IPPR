@@ -15,6 +15,13 @@ def dp_chain(g, f, m):
     # TODO
     return
 
+def shift(im, dx, dy):
+    n,m = im.shape
+    bigim = np.zeros((3*n,3*m),im.dtype) 
+    bigim[n:2*n,m:2*m] = im
+    x = n - dx
+    y = m - dy
+    return bigim[x : x + n, y : y + m]
 
 def compute_cost_volume_sad(left_image, right_image, D, radius):
     """
@@ -31,7 +38,7 @@ def compute_cost_volume_sad(left_image, right_image, D, radius):
     
     for d in range(0, D):
         #Translate image by d, and compute similarity for that slice of cost volume. 
-        tr_right_image = np.roll(right_image, d, axis = 0)
+        tr_right_image = shift(right_image, 0, d)
         diff_im = np.abs(left_image - tr_right_image) ##Absolute difference
         padded_diff_im = np.zeros((diff_im.shape[0] + 2 * radius , diff_im.shape[1] + 2 * radius))
         padded_diff_im[radius : radius + diff_im.shape[0], radius : radius + diff_im.shape[1]] = diff_im
@@ -58,7 +65,7 @@ def compute_cost_volume_ssd(left_image, right_image, D, radius):
     
     for d in range(0, D):
         #Translate image by d, and compute similarity for that slice of cost volume. 
-        tr_right_image = np.roll(right_image, d, axis = 0)
+        tr_right_image = shift(right_image, 0, d)
         diff_im = (left_image - tr_right_image) ** 2 #Squared difference. 
         padded_diff_im = np.zeros((diff_im.shape[0] + 2 * radius , diff_im.shape[1] + 2 * radius))
         padded_diff_im[radius : radius + diff_im.shape[0], radius : radius + diff_im.shape[1]] = diff_im
@@ -95,7 +102,7 @@ def compute_cost_volume_ncc(left_image, right_image, D, radius):
     
     for d in range(0, D):
         #Translate image by d, and compute similarity for that slice of cost volume. 
-        tr_right_image = np.roll(right_image, d, axis = 0)
+        tr_right_image = shift(right_image, 0, d)
         padded_tr_right_image = np.zeros((tr_right_image.shape[0] + 2 * radius , tr_right_image.shape[1] + 2 * radius))
         padded_tr_right_image[radius : radius + tr_right_image.shape[0], radius : radius + tr_right_image.shape[1]] = tr_right_image
         padded_tr_right_image_windows = view_as_windows(padded_tr_right_image, (radius * 2, radius * 2))
@@ -160,6 +167,7 @@ def main():
 #    cv = compute_cost_volume_ssd(im0g, im1g, 64, 5)
     cv = compute_cost_volume_ncc(im0g, im1g, 64, 5)
 
+#    shimg = shift(im0g, 50, 0)
     
     #Compute winner takes all. 
     disp_wta = np.argmin(cv, axis = 2)
