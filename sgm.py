@@ -134,15 +134,16 @@ def calculate_traversal_cost(L1, L2, dist):
 def get_pairwise_costs(H, W, D, weights=None):
     L1 = 1
     L2 = 10
-    disparity_size = len(D)
+    disparity_size = D
     pairwise_costs = np.ones((H, W, disparity_size, disparity_size))
-
+    print("Pairwise Costs")
 
     for h in range(H): # row-wise
       for w in range(W): # compare prev neighbour column pixel
         for d2 in range(D): # current disparity iteration
           for d1 in range(D): # prev pixel disparity iteration
             if weights==None:
+              print(h, w, d2, d1)
               pairwise_costs[h][w][d2][d1] =  calculate_traversal_cost(L1, L2, abs(d1 - d2))
             else:
               pairwise_costs[h][w][d2][d1] =  weights[d2][d1]*calculate_traversal_cost(L1, L2, abs(d1 - d2))
@@ -156,7 +157,7 @@ def get_pairwise_costs(H, W, D, weights=None):
              In this case the array of shape (D,D) can be broadcasted to (H,W,D,D) by using np.broadcast_to(..).
     """
     # TODO
-
+    np.save('pairwise_costs', allow_pickle=True)
     return pairwise_costs
 
 
@@ -169,42 +170,35 @@ def compute_sgm(cv, f):
     """
     Hr, Wc, D = cv.shape
     print(Hr, Wc, D)
-    m = np.ones((Hr, Wc, D))
+    m = np.ones((Hr, Wc, D, 4))
     b = np.ones((Hr, Wc, D))
-    optimal_path = np.ones((D, Hr, Wc))
+    #optimal_path = np.ones((D, Hr, Wc))
     resultant_image = np.ones((Hr, Wc))
-    directions = ['l', 'r', 'u', 'd']
-
+    #directions = ['l', 'r', 'u', 'd']
+    m_prev = 0
+    print("compute_sgm")
     for h in range(Hr): # row-wise
       for w in range(Wc): # compare prev neighbour column pixel
         for t in range(D): # current disparity iteration
           m_i_s = [0]
           for s in range(D): # prev pixel disparity iteration
             sum_of_messages = 0
-            if w == 0 or h==0: # first column only has base energy
-              # TODO: Add the edge cases
-              x = 0
+
+            if w == 0: # first column only has base energy
+              b[h][w][t] = cv[h][w][s]
+              m_i_s[t] = cv[h][w][s]
             else:
-              for a in directions:
-                if a == 'l':
-                  he = h
-                  we = w - 1
-                elif a == 'r':
-                  he = h
-                  we = w + 1
-                elif a == 'u':
-                  he = h + 1
-                  we = w
-                elif a == 'd':
-                  he = h + 1
-                  we = w
+              # TODO: How to calculate messages in node i for edge cases
+              left = m[h][w -1][s] if w != 0 else 0
+              right =  m[h][w +1][s] if w != Wc - 1 else 0
+              up = m[h - 1][w][s] if h != 0 else 0
+              down = m[h - 1][w][s] if  h != Hr else 0
+              sum_of_messages = sum_of_messages + left+right+up+down
 
-                sum_of_messages = sum_of_messages + m[h][w][s][a]
 
-                # TODO: How to calculate messages in node i
               b[h][w][s] = cv[h][w][s] + sum_of_messages
-              m_i_s = m_i_s.append[m[h][w][s][a] + f[h][w][s][t] + cv[h][w][s]]
-            m[he][we][t][a] = min(m_i_s)
+              m_i_s = m_i_s.append[m[h][w][s] + f[h][w][s][t] + cv[h][w][s]]
+            m[h][w][t] = min(m_i_s)
       resultant_image[h][w] = b[h][w].argmin()
 
     # TODO
@@ -226,6 +220,7 @@ def calculate_accX(computed_disparities, ground_truth_disparities, occlusion_mas
 
 
   acc = counter/Z
+  return acc
 
 def main():
     # Load input images
@@ -249,7 +244,7 @@ def main():
 #    shimg = shift(im0g, 50, 0)
 
     #Compute winner takes all.
-    disp_wta = np.argmin(cv, axis = 2)
+    #disp_wta = np.argmin(cv, axis = 2)
 
     # Compute pairwise costs
     H, W, D = cv.shape
@@ -260,7 +255,8 @@ def main():
 
     # Plot result
     plt.figure()
-    plt.imshow(disp_wta)
+    #plt.imshow(disp_wta)
+    plt.imshow(disp)
     plt.show()
 
 
