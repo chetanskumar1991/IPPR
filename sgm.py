@@ -6,18 +6,53 @@ from skimage.transform import rescale
 from skimage.util import view_as_windows
 
 
-def dp_chain(g, f, m):
+def dp_chain(g, f, m, a):
+  # eqn 8
     '''
         g: unary costs with shape (H,W,D)
         f: pairwise costs with shape (H,W,D,D)
         m: messages with shape (H,W,D)
     '''
-    
-    return
+    # a = direction, added by Shalini
+
+    H, W, D = g.shape
+    if(a == 0):
+      # for up to down a=0
+      for hr in range(H):
+        if hr == 0:
+          m[hr, :, :] = np.zeros(m[hr, :, :].shape)
+        else:
+          m[hr, :, :] = np.amin(m[hr - 1, :, :] + f[hr - 1,:, :, :] + g[hr - 1, :, :], axis=2) #Is the axis correct
+
+    elif(a == 1):
+      # for down to up a=1
+      for hr in range(H - 1, 0, -1):
+        if hr == H - 1:
+          m[hr, :, :] = np.zeros(m[hr, :, :].shape)
+        else:
+          m[hr, :, :] = np.amin(m[hr + 1, :, :] + f[hr + 1,:, :, :] + g[hr, :, :], axis=2)
+
+    elif(a == 2):
+      # for left to right a=2
+      for wc in range(W):
+        if wc == 0:
+          m[:, wc, :] = np.zeros(m[:, wc, :].shape)
+        else:
+          m[:, wc, :] = np.amin(m[:, wc - 1, :] + f[:,wc - 1, :, :] + g[:, wc, :], axis=2)
+
+    elif(a == 3):
+      # for right to left a=3
+      for wc in range(W - 1, 0, -1):
+        if wc == W - 1:
+          m[:, wc, :] = np.zeros(m[:, wc, :].shape)
+        else:
+          m[:, wc, :] = np.amin(m[:, wc + 1, :] + f[:,wc + 1, :, :] + g[:, wc, :], axis=2)
+
+    return m
 
 def shift(im, dx, dy):
     n,m = im.shape
-    bigim = np.zeros((3*n,3*m),im.dtype) 
+    bigim = np.zeros((3*n,3*m),im.dtype)
     bigim[n:2*n,m:2*m] = im
     x = n - dx
     y = m - dy
@@ -35,19 +70,19 @@ def compute_cost_volume_sad(left_image, right_image, D, radius):
     H = left_image.shape[0]
     W = right_image.shape[1]
     cv_sad = np.zeros((H, W, D))
-    
+
     for d in range(0, D):
-        #Translate image by d, and compute similarity for that slice of cost volume. 
+        #Translate image by d, and compute similarity for that slice of cost volume.
         tr_right_image = shift(right_image, 0, d)
         diff_im = np.abs(left_image - tr_right_image) ##Absolute difference
         padded_diff_im = np.zeros((diff_im.shape[0] + 2 * radius , diff_im.shape[1] + 2 * radius))
         padded_diff_im[radius : radius + diff_im.shape[0], radius : radius + diff_im.shape[1]] = diff_im
         padded_diff_im_windows = view_as_windows(padded_diff_im, (radius * 2, radius * 2))
-        
+
         padded_diff_im_windows = padded_diff_im_windows.reshape((padded_diff_im_windows.shape[0], padded_diff_im_windows.shape[1], -1))
         cv_sad[:, :, d] = np.sum(padded_diff_im_windows, axis = 2)[0 : H, 0: W]
         print("Computed SAD for disparity slice, ", d)
-                
+
     return cv_sad
 
 def compute_cost_volume_ssd(left_image, right_image, D, radius):
@@ -62,19 +97,19 @@ def compute_cost_volume_ssd(left_image, right_image, D, radius):
     H = left_image.shape[0]
     W = right_image.shape[1]
     cv_ssd = np.zeros((H, W, D))
-    
+
     for d in range(0, D):
-        #Translate image by d, and compute similarity for that slice of cost volume. 
+        #Translate image by d, and compute similarity for that slice of cost volume.
         tr_right_image = shift(right_image, 0, d)
-        diff_im = (left_image - tr_right_image) ** 2 #Squared difference. 
+        diff_im = (left_image - tr_right_image) ** 2 #Squared difference.
         padded_diff_im = np.zeros((diff_im.shape[0] + 2 * radius , diff_im.shape[1] + 2 * radius))
         padded_diff_im[radius : radius + diff_im.shape[0], radius : radius + diff_im.shape[1]] = diff_im
         padded_diff_im_windows = view_as_windows(padded_diff_im, (radius * 2, radius * 2))
-        
+
         padded_diff_im_windows = padded_diff_im_windows.reshape((padded_diff_im_windows.shape[0], padded_diff_im_windows.shape[1], -1))
         cv_ssd[:, :, d] = np.sum(padded_diff_im_windows, axis = 2)[0 : H, 0: W]
         print("Computed SSD for disparity slice, ", d)
-                
+
     return cv_ssd
 
 
@@ -99,27 +134,27 @@ def compute_cost_volume_ncc(left_image, right_image, D, radius):
     p_mean = np.mean(pv, axis = 2)
     p_mean_3d = np.repeat(p_mean[:, :, np.newaxis], pv.shape[2], axis = 2)
     p = pv - p_mean_3d
-    
+
     for d in range(0, D):
-        #Translate image by d, and compute similarity for that slice of cost volume. 
+        #Translate image by d, and compute similarity for that slice of cost volume.
         tr_right_image = shift(right_image, 0, d)
         padded_tr_right_image = np.zeros((tr_right_image.shape[0] + 2 * radius , tr_right_image.shape[1] + 2 * radius))
         padded_tr_right_image[radius : radius + tr_right_image.shape[0], radius : radius + tr_right_image.shape[1]] = tr_right_image
         padded_tr_right_image_windows = view_as_windows(padded_tr_right_image, (radius * 2, radius * 2))
         padded_tr_right_image_windows = padded_tr_right_image_windows.reshape((padded_tr_right_image_windows.shape[0], padded_tr_right_image_windows.shape[1], -1))
         qv = padded_tr_right_image_windows
-        
+
         q_mean = np.mean(qv, axis = 2)
         q_mean_3d = np.repeat(q_mean[:, :, np.newaxis], qv.shape[2], axis = 2)
         q = qv - q_mean_3d
-        
+
         pq = p * q
         p2q2 = (p ** 2) * (q ** 2)
-        
+
         cv_ncc[:, :, d] = (np.sum(pq, axis = 2) / np.sqrt(np.sum(p2q2, axis = 2)))[0: H, 0: W]
-        
+
         print("Computed NCC for disparity slice, ", d)
-                
+
     return cv_ncc
 
 
@@ -141,16 +176,17 @@ def get_pairwise_costs(H, W, D, weights=None):
         dxx, dyy = np.meshgrid(dline, dline)
         dgrid = np.abs(dxx - dyy)
         dgrid[(dgrid == 1)] = L1
-        dgrid[(dgrid > 1)] = L2 
-        
+        dgrid[(dgrid > 1)] = L2
+
         pairwise = np.broadcast_to(dgrid, (H, W))
-        
+
         return pairwise
-    
-    return None 
+
+    return None
 
 
 def compute_sgm(cv, f):
+    # eq 9
     """
     Compute the SGM
     :param cv: cost volume of shape (H,W,D)
@@ -158,7 +194,20 @@ def compute_sgm(cv, f):
     :return: pixel wise disparity map of shape (H,W)
     """
     # TODO
-    return
+    m = np.zeros((cv.shape))
+    H, W, D = cv.shape
+    d = np.zeros((H, W))
+
+    down = dp_chain(cv, f, m, 0)
+    up = dp_chain(cv, f, m, 1)
+    right = dp_chain(cv, f, m, 2)
+    left = dp_chain(cv, f, m, 3)
+
+    for h in range(H):
+      for w in range(W):
+        d[h, w] = np.argmin(cv[h, w, :] + down[h, w, :] + up[h, w, :] + right[h, w, :] + left[h, w, :], axis=2)
+
+    return d
 
 
 def main():
@@ -181,10 +230,10 @@ def main():
     cv = compute_cost_volume_ncc(im0g, im1g, 64, 5)
 
 #    shimg = shift(im0g, 50, 0)
-    
-    #Compute winner takes all. 
+
+    #Compute winner takes all.
     disp_wta = np.argmin(cv, axis = 2)
-    
+
     # Compute pairwise costs
     H, W, D = cv.shape
     f = get_pairwise_costs(H, W, D)
@@ -194,7 +243,7 @@ def main():
 
     # Plot result
     plt.figure()
-    plt.imshow(disp_wta)
+    plt.imshow(disp)
     plt.show()
 
 
