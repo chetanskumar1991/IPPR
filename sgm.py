@@ -12,7 +12,7 @@ def dp_chain(g, f, m):
         f: pairwise costs with shape (H,W,D,D)
         m: messages with shape (H,W,D)
     '''
-    # TODO
+    
     return
 
 def shift(im, dx, dy):
@@ -134,7 +134,20 @@ def get_pairwise_costs(H, W, D, weights=None):
              In this case the array of shape (D,D) can be broadcasted to (H,W,D,D) by using np.broadcast_to(..).
     """
     # TODO
-    return
+    if(weights is None):
+        L1 = 2
+        L2 = 4
+        dline = np.linspace(0, D, D)
+        dxx, dyy = np.meshgrid(dline, dline)
+        dgrid = np.abs(dxx - dyy)
+        dgrid[(dgrid == 1)] = L1
+        dgrid[(dgrid > 1)] = L2 
+        
+        pairwise = np.broadcast_to(dgrid, (H, W))
+        
+        return pairwise
+    
+    return None 
 
 
 def compute_sgm(cv, f):
@@ -173,11 +186,11 @@ def main():
     disp_wta = np.argmin(cv, axis = 2)
     
     # Compute pairwise costs
-#    H, W, D = cv.shape
-#    f = get_pairwise_costs(H, W, D)
+    H, W, D = cv.shape
+    f = get_pairwise_costs(H, W, D)
 
     # Compute SGM
-#    disp = compute_sgm(cv, f)
+    disp = compute_sgm(cv, f)
 
     # Plot result
     plt.figure()
