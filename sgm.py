@@ -4,6 +4,7 @@ from skimage.io import imread
 from skimage.color import rgb2gray
 from skimage.transform import rescale
 from skimage.util import view_as_windows
+from scipy.ndimage import uniform_filter
 
 
 def dp_chain(g, f, m, a):
@@ -22,7 +23,8 @@ def dp_chain(g, f, m, a):
         if hr == 0:
           m[hr, :, :] = np.zeros(m[hr, :, :].shape)
         else:
-          m[hr, :, :] = np.amin(m[hr - 1, :, :] + f[hr - 1,:, :, :] + g[hr - 1, :, :], axis=2) #Is the axis correct
+          for t in range(D):
+            m[hr, :, t] = np.amin(m[hr - 1, :, :] + f[hr - 1,:, :, t] + g[hr - 1, :, :], axis=1) #Is the axis correct
 
     elif(a == 1):
       # for down to up a=1
@@ -30,7 +32,8 @@ def dp_chain(g, f, m, a):
         if hr == H - 1:
           m[hr, :, :] = np.zeros(m[hr, :, :].shape)
         else:
-          m[hr, :, :] = np.amin(m[hr + 1, :, :] + f[hr + 1,:, :, :] + g[hr, :, :], axis=2)
+          for t in range(D):
+            m[hr, :, t] = np.amin(m[hr + 1, :, :] + f[hr + 1,:, :, t] + g[hr + 1, :, :], axis=1)
 
     elif(a == 2):
       # for left to right a=2
@@ -38,7 +41,8 @@ def dp_chain(g, f, m, a):
         if wc == 0:
           m[:, wc, :] = np.zeros(m[:, wc, :].shape)
         else:
-          m[:, wc, :] = np.amin(m[:, wc - 1, :] + f[:,wc - 1, :, :] + g[:, wc, :], axis=2)
+          for t in range(D):
+            m[:, wc, t] = np.amin(m[:, wc - 1, :] + f[:,wc - 1, :, t] + g[:, wc - 1, :], axis=1)
 
     elif(a == 3):
       # for right to left a=3
@@ -46,7 +50,8 @@ def dp_chain(g, f, m, a):
         if wc == W - 1:
           m[:, wc, :] = np.zeros(m[:, wc, :].shape)
         else:
-          m[:, wc, :] = np.amin(m[:, wc + 1, :] + f[:,wc + 1, :, :] + g[:, wc, :], axis=2)
+          for t in range(D):
+            m[:, wc, t] = np.amin(m[:, wc + 1, :] + f[:,wc + 1, :, t] + g[:, wc + 1, :], axis=1)
 
     return m
 
@@ -158,6 +163,11 @@ def compute_cost_volume_ncc(left_image, right_image, D, radius):
     return cv_ncc
 
 
+def compute_mean(image, filter_size):
+    mean_image = uniform_filter(image, filter_size, mode='constant')
+    return mean_image
+
+
 def get_pairwise_costs(H, W, D, weights=None):
     """
     :param H: height of input image
@@ -169,16 +179,23 @@ def get_pairwise_costs(H, W, D, weights=None):
              In this case the array of shape (D,D) can be broadcasted to (H,W,D,D) by using np.broadcast_to(..).
     """
     # TODO
+    pairwise = np.ones((H, W, D, D))
     if(weights is None):
         L1 = 2
         L2 = 4
         dline = np.linspace(0, D, D)
+        print(dline.shape)
         dxx, dyy = np.meshgrid(dline, dline)
+        print(dxx.shape)
+        print(dyy.shape)
         dgrid = np.abs(dxx - dyy)
+        print(dgrid.shape)
         dgrid[(dgrid == 1)] = L1
         dgrid[(dgrid > 1)] = L2
-
-        pairwise = np.broadcast_to(dgrid, (H, W))
+        print(H, W)
+        for h in range(H):
+          for w in range(W):
+            pairwise[h, w, :, :] = dgrid
 
         return pairwise
 
@@ -199,16 +216,36 @@ def compute_sgm(cv, f):
     d = np.zeros((H, W))
 
     down = dp_chain(cv, f, m, 0)
+    print('loaded down')
     up = dp_chain(cv, f, m, 1)
+    print('loaded up')
     right = dp_chain(cv, f, m, 2)
+    print('loaded right')
     left = dp_chain(cv, f, m, 3)
+    print('loaded left')
 
     for h in range(H):
       for w in range(W):
-        d[h, w] = np.argmin(cv[h, w, :] + down[h, w, :] + up[h, w, :] + right[h, w, :] + left[h, w, :], axis=2)
+        d[h, w] = np.argmin(cv[h, w, :] + down[h, w, :] + up[h, w, :] + right[h, w, :] + left[h, w, :], axis=0)
 
     return d
 
+def calculate_accX(computed_disparities, ground_truth_disparities, occlusion_mask, X):
+  H, W = computed_disparities.shape
+  counter = 0
+  Z = 0
+
+  for i in range(computed_disparities.shape[0]):
+    for j in range(computed_disparities.shape[1]):
+      if occlusion_mask[i, j] > 0:
+        Z = Z + 1
+        if abs(computed_disparities[i, j] - ground_truth_disparities[i,j]) <= X:
+          counter = counter + 1
+
+
+  acc = counter/Z
+
+  return acc
 
 def main():
     # Load input images
@@ -225,10 +262,14 @@ def main():
     plt.tight_layout()
 
     # Use either SAD, NCC or SSD to compute the cost volume
-#    cv = compute_cost_volume_sad(im0g, im1g, 64, 5)
-#    cv = compute_cost_volume_ssd(im0g, im1g, 64, 5)
-    cv = compute_cost_volume_ncc(im0g, im1g, 64, 5)
-
+    #cv = compute_cost_volume_sad(im0g, im1g, 64, 5)
+    #cv = compute_cost_volume_ssd(im0g, im1g, 64, 5)
+    #cv = compute_cost_volume_ncc(im0g, im1g, 64, 5)
+    #np.save('cv_ssd', cv)
+    cv = np.load('cv.npy')
+    cv = -1*cv
+    #cv = np.load('cv_sad.npy')
+    print('loaded cv')
 #    shimg = shift(im0g, 50, 0)
 
     #Compute winner takes all.
@@ -236,7 +277,10 @@ def main():
 
     # Compute pairwise costs
     H, W, D = cv.shape
-    f = get_pairwise_costs(H, W, D)
+    #f = get_pairwise_costs(H, W, D)
+    f = np.load('pairwise.npy')
+    print('loaded pairwise')
+    #np.save('pairwise', f)
 
     # Compute SGM
     disp = compute_sgm(cv, f)
@@ -244,6 +288,7 @@ def main():
     # Plot result
     plt.figure()
     plt.imshow(disp)
+    plt.imshow(disp_wta)
     plt.show()
 
 
