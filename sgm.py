@@ -5,6 +5,8 @@ from skimage.color import rgb2gray
 from skimage.transform import rescale
 from skimage.util import view_as_windows
 from scipy.ndimage import uniform_filter
+import json
+
 
 
 def dp_chain(g, f, m, a):
@@ -86,7 +88,7 @@ def compute_cost_volume_sad(left_image, right_image, D, radius):
 
         padded_diff_im_windows = padded_diff_im_windows.reshape((padded_diff_im_windows.shape[0], padded_diff_im_windows.shape[1], -1))
         cv_sad[:, :, d] = np.sum(padded_diff_im_windows, axis = 2)[0 : H, 0: W]
-        print("Computed SAD for disparity slice, ", d)
+        #print("Computed SAD for disparity slice, ", d)
 
     return cv_sad
 
@@ -113,7 +115,7 @@ def compute_cost_volume_ssd(left_image, right_image, D, radius):
 
         padded_diff_im_windows = padded_diff_im_windows.reshape((padded_diff_im_windows.shape[0], padded_diff_im_windows.shape[1], -1))
         cv_ssd[:, :, d] = np.sum(padded_diff_im_windows, axis = 2)[0 : H, 0: W]
-        print("Computed SSD for disparity slice, ", d)
+        #print("Computed SSD for disparity slice, ", d)
 
     return cv_ssd
 
@@ -158,7 +160,7 @@ def compute_cost_volume_ncc(left_image, right_image, D, radius):
 
         cv_ncc[:, :, d] = (np.sum(pq, axis = 2) / np.sqrt(np.sum(p2q2, axis = 2)))[0: H, 0: W]
 
-        print("Computed NCC for disparity slice, ", d)
+        #print("Computed NCC for disparity slice, ", d)
 
     return cv_ncc
 
@@ -168,7 +170,7 @@ def compute_mean(image, filter_size):
     return mean_image
 
 
-def get_pairwise_costs(H, W, D, weights=None):
+def get_pairwise_costs(H, W, D, L1, L2, weights=None):
     """
     :param H: height of input image
     :param W: width of input image
@@ -184,15 +186,15 @@ def get_pairwise_costs(H, W, D, weights=None):
         L1 = 2
         L2 = 4
         dline = np.linspace(0, D, D)
-        print(dline.shape)
+        #print(dline.shape)
         dxx, dyy = np.meshgrid(dline, dline)
-        print(dxx.shape)
-        print(dyy.shape)
+        #print(dxx.shape)
+        #print(dyy.shape)
         dgrid = np.abs(dxx - dyy)
-        print(dgrid.shape)
+        #print(dgrid.shape)
         dgrid[(dgrid == 1)] = L1
         dgrid[(dgrid > 1)] = L2
-        print(H, W)
+        #print(H, W)
         for h in range(H):
           for w in range(W):
             pairwise[h, w, :, :] = dgrid
@@ -247,49 +249,120 @@ def calculate_accX(computed_disparities, ground_truth_disparities, occlusion_mas
 
   return acc
 
+
 def main():
     # Load input images
-    im0 = imread("Images/Adirondack_left.png")
-    im1 = imread("Images/Adirondack_right.png")
+    images = ['Adirondack', 'cones']
+    hyperparameters = [[1, 3], [4, 8], [10, 20], [0.1, 0.5], [0.01, 0.05], [100, 200]]
+    radius = [1, 3, 5, 9, 15]
+    X = [1, 2, 3]
+    results = []
 
-    im0g = rgb2gray(im0)
-    im1g = rgb2gray(im1)
+    for image in images:
+      im0 = imread("Images/" + image +"_left.png")
+      im1 = imread("Images/"+ image +"_right.png")
+      mask = imread("Images/"+ image + "_mask.png")
+      gt = imread("Images/"+ image + "_gt.png")
 
-    # Plot input images
-    plt.figure(figsize=(8,4))
-    plt.subplot(121), plt.imshow(im0g, cmap='gray'), plt.title('Left')
-    plt.subplot(122), plt.imshow(im1g, cmap='gray'), plt.title('Right')
-    plt.tight_layout()
+      im0g = rgb2gray(im0)
+      im1g = rgb2gray(im1)
 
-    # Use either SAD, NCC or SSD to compute the cost volume
-    #cv = compute_cost_volume_sad(im0g, im1g, 64, 5)
-    #cv = compute_cost_volume_ssd(im0g, im1g, 64, 5)
-    #cv = compute_cost_volume_ncc(im0g, im1g, 64, 5)
-    #np.save('cv_ssd', cv)
-    cv = np.load('cv.npy')
-    cv = -1*cv
-    #cv = np.load('cv_sad.npy')
-    print('loaded cv')
-#    shimg = shift(im0g, 50, 0)
+      '''
+      # Plot input images
+      plt.figure(figsize=(8,4))
+      plt.subplot(121), plt.imshow(im0g, cmap='gray'), plt.title('Left')
+      plt.subplot(122), plt.imshow(im1g, cmap='gray'), plt.title('Right')
+      plt.tight_layout()
+      '''
+      file_counter = 0
 
-    #Compute winner takes all.
-    disp_wta = np.argmin(cv, axis = 2)
+      for rad in radius:
+        for [L1, L2] in hyperparameters:
+          for accuX in X:
+            # Use either SAD, NCC or SSD to compute the cost volume
+            cv_sad = compute_cost_volume_sad(im0g, im1g, 64, rad)
+            cv_ssd = compute_cost_volume_ssd(im0g, im1g, 64, rad)
+            cv_ncc = -1*compute_cost_volume_ncc(im0g, im1g, 64, rad)
 
-    # Compute pairwise costs
-    H, W, D = cv.shape
-    #f = get_pairwise_costs(H, W, D)
-    f = np.load('pairwise.npy')
-    print('loaded pairwise')
-    #np.save('pairwise', f)
+            print('loaded cv', X, L1, L2, rad)
+        #    shimg = shift(im0g, 50, 0)
 
-    # Compute SGM
-    disp = compute_sgm(cv, f)
+            #Compute winner takes all.
+            disp_wta_sad = np.argmin(cv_sad, axis = 2)
+            disp_wta_sad_counter = file_counter
+            disp_wta_ssd = np.argmin(cv_ssd, axis = 2)
+            disp_wta_ssd_counter = file_counter + 1
+            disp_wta_ncc = np.argmin(cv_ncc, axis = 2)
+            disp_wta_ncc_counter = file_counter + 2
+            print('loaded wta')
 
-    # Plot result
-    plt.figure()
-    plt.imshow(disp)
-    plt.imshow(disp_wta)
-    plt.show()
+            # Compute pairwise costs
+            H, W, D = cv_sad.shape
+            f = get_pairwise_costs(H, W, D, L1, L2)
+            #f = np.load('pairwise.npy')
+            print('loaded pairwise')
+            #np.save('pairwise', f)
+
+            # Compute SGM
+            disp_sad = compute_sgm(cv_sad, f)
+            disp_sad_counter = file_counter + 3
+            disp_ssd = compute_sgm(cv_ssd, f)
+            disp_ssd_counter = file_counter + 4
+            disp_ncc = compute_sgm(cv_ncc, f)
+            disp_ncc_counter = file_counter + 5
+            print('loaded sgm')
+
+            # Plot result
+            fig, ax = plt.subplots(2, 3)
+
+            ax[0,0].imshow(disp_wta_sad)
+            ax[0,1].imshow(disp_wta_ssd)
+            ax[0,2].imshow(disp_wta_ncc)
+            ax[1,0].imshow(disp_sad)
+            ax[1,1].imshow(disp_ssd)
+            ax[1,2].imshow(disp_ncc)
+            fig.savefig('results/'+ str(file_counter))
+
+            np.save('results/' + str(disp_wta_sad_counter), disp_wta_sad, allow_pickle=True)
+            np.save('results/' + str(disp_wta_ssd_counter), disp_wta_ssd, allow_pickle=True)
+            np.save('results/' + str(disp_wta_ncc_counter), disp_wta_ncc, allow_pickle=True)
+            np.save('results/' + str(disp_sad_counter), disp_sad, allow_pickle=True)
+            np.save('results/' + str(disp_ssd_counter), disp_ssd, allow_pickle=True)
+            np.save('results/' + str(disp_ncc_counter), disp_ncc, allow_pickle=True)
+
+            # Accuracies
+            accu_wta_sad = calculate_accX(disp_wta_sad, gt, mask, accuX)
+            accu_wta_ssd = calculate_accX(disp_wta_ssd, gt, mask, accuX)
+            accu_wta_ncc = calculate_accX(disp_wta_ncc, gt, mask, accuX)
+            accu_sgm_sad = calculate_accX(disp_sad, gt, mask, accuX)
+            accu_sgm_ssd = calculate_accX(disp_ssd, gt, mask, accuX)
+            accu_sgm_ncc = calculate_accX(disp_ncc, gt, mask, accuX)
+
+            # ['radius', 'local_matching_method', 'disparity_algo',
+#            'L1', 'L2', 'accuX', 'image_name', 'accuracy',
+#            'filename', 'plot_name']
+            results.append([rad, 'sad', 'wta', L1, L2, accuX, image, accu_wta_sad,
+                            'results/' + str(disp_wta_sad_counter), 'results/'+ str(file_counter)])
+
+            results.append([rad, 'ssd', 'wta', L1, L2, accuX, image, accu_wta_ssd,
+                            'results/' + str(disp_wta_ssd_counter), 'results/'+ str(file_counter)])
+
+            results.append([rad, 'ncc', 'wta', L1, L2, accuX, image, accu_wta_ncc,
+                            'results/' + str(disp_wta_ncc_counter), 'results/'+ str(file_counter)])
+
+            results.append([rad, 'sad', 'sgm', L1, L2, accuX, image, accu_sgm_sad,
+                            'results/' + str(disp_sad_counter), 'results/'+ str(file_counter)])
+
+            results.append([rad, 'ssd', 'sgm', L1, L2, accuX, image, accu_sgm_ssd,
+                            'results/' + str(disp_ssd_counter), 'results/'+ str(file_counter)])
+
+            results.append([rad, 'ncc', 'sgm', L1, L2, accuX, image, accu_sgm_ncc,
+                            'results/' + str(disp_ncc_counter), 'results/'+ str(file_counter)])
+
+
+            plt.show()
+            file_counter = file_counter + 6
+            np.save('results/results', results, allow_pickle=True)
 
 
 if __name__== "__main__":
